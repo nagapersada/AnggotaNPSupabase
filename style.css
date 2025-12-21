@@ -1,136 +1,87 @@
-/* === MODERN LUXURY THEME === */
+/* === THEME PROFESSIONAL DARK GOLD === */
 :root {
-  --gold: #FFD700;
-  --dark-gold: #B8860B;
-  --bg-deep: #050505;
-  --bg-card: #121212;
-  --border: #222222;
-  --text: #E0E0E0;
+  --gold: #ffd700;
+  --gold-dark: #b8860b;
+  --bg-dark: #0a0a0a;
+  --bg-card: #141414;
+  --text-primary: #e0e0e0;
+  --text-secondary: #999;
+  --border: #222;
 }
 
 body {
-  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  background-color: var(--bg-deep);
-  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background-color: var(--bg-dark);
+  color: var(--text-primary);
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
+  line-height: 1.5;
 }
 
-/* === LOGIN PAGE PRECISE CENTER === */
+/* === LOGIN CENTERED === */
 .login-page {
   display: flex;
-  justify-content: center;
   align-items: center;
+  justify-content: center;
+  min-height: 100vh;
   background: black;
 }
 
 .login-container {
-  width: 90%;
-  max-width: 360px;
-  padding: 50px 30px;
+  width: 100%;
+  max-width: 380px;
+  padding: 40px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 24px;
+  border-radius: 20px;
   text-align: center;
-  box-shadow: 0 25px 50px rgba(0,0,0,0.8);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.7);
 }
 
-.login-container .logo {
-  width: 120px;
-  margin-bottom: 30px;
-}
+.login-container .logo { width: 100px; margin-bottom: 20px; }
+.login-container h2 { color: var(--gold); margin-bottom: 30px; letter-spacing: 1px; }
 
-.login-container h2 {
-  color: var(--gold);
-  font-size: 1.5rem;
-  font-weight: 700;
-  margin-bottom: 30px;
-  letter-spacing: 2px;
-}
-
-/* === FORM ELEMENTS PRECISISION === */
+/* === INPUT & BUTTONS === */
 input[type="text"], input[type="password"], input[type="date"], select {
   width: 100%;
-  padding: 14px 18px;
+  padding: 14px;
   margin-bottom: 15px;
   background: #000;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 10px;
   color: #fff;
-  font-size: 14px;
   box-sizing: border-box;
-  transition: all 0.2s ease;
-}
-
-input:focus {
-  border-color: var(--gold);
-  outline: none;
 }
 
 button {
   width: 100%;
-  padding: 15px;
-  background: linear-gradient(135deg, var(--gold), var(--dark-gold));
+  padding: 14px;
+  background: linear-gradient(135deg, var(--gold), var(--gold-dark));
   color: #000;
   border: none;
-  border-radius: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1px;
+  border-radius: 10px;
+  font-weight: bold;
   cursor: pointer;
-  transition: transform 0.2s;
+  transition: 0.3s;
+  text-transform: uppercase;
 }
 
-button:hover {
-  transform: translateY(-2px);
-  filter: brightness(1.1);
-}
+button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3); }
 
 /* === DASHBOARD LAYOUT === */
-.dashboard {
-  max-width: 1200px;
-  margin: 40px auto;
-  padding: 0 20px;
-  box-sizing: border-box;
-}
+.dashboard { max-width: 1100px; margin: 40px auto; padding: 0 20px; }
+.card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 15px; padding: 25px; margin-bottom: 25px; }
+.stats-card #totalMembers { font-size: 3.5rem; color: var(--gold); font-weight: bold; }
 
-.card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 30px;
-  margin-bottom: 25px;
-}
-
-.stats-card {
-  text-align: center;
-  background: linear-gradient(145deg, #181818, #111);
-}
-
-#totalMembers {
-  font-size: 4rem;
-  font-weight: 900;
-  color: var(--gold);
-  line-height: 1;
-}
-
-/* === NETWORK PAGE === */
-.network-page {
-  padding: 20px;
-  text-align: center;
-}
-
+/* === NETWORK DIAGRAM AREA === */
 #networkDiagram {
   width: 100%;
-  height: 80vh;
+  height: 75vh;
   background: #000;
+  border-radius: 15px;
   border: 1px solid var(--border);
-  border-radius: 20px;
-  margin-top: 20px;
 }
 
-.btn-secondary { background: #222; color: #fff; border: 1px solid #333; margin-top: 10px; }
-.btn-danger { background: #3d0a0a; color: #ff8585; margin-top: 20px; }
+.result-card { background: #0c0c0c; border: 1px solid var(--border); border-radius: 12px; padding: 15px; margin-bottom: 10px; }
+.btn-secondary { background: #222; color: #fff; }
+.btn-danger { background: #3d0c0c; color: #ff8888; }
