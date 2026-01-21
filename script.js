@@ -1,0 +1,370 @@
+// ==========================================
+// KONEKSI DATABASE SUPABASE
+// ==========================================
+const supabaseUrl = 'https://hysjbwysizpczgcsqvuv.supabase.co';
+// Key tetap sama seperti file asli Anda
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh5c2pid3lzaXpwY3pnY3NxdnV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM5MjA2MTYsImV4cCI6MjA3OTQ5NjYxNn0.sLSfXMn9htsinETKUJ5IAsZ2l774rfeaNNmB7mVQcR4';
+
+const db = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+let allMembersCache = []; 
+let diagram = null;
+let growthChart = null; 
+let memberListSortColumn = 'joinDate'; 
+let memberListSortDirection = 'asc';
+let memberListFilterUid = null; 
+
+document.addEventListener('DOMContentLoaded', async () => {
+    const path = window.location.pathname;
+
+    // Cek status login sederhana
+    const isLoggedIn = sessionStorage.getItem('isLoggedIn');
+    if (!isLoggedIn && !path.includes('index.html') && !path.endsWith('/')) {
+        window.location.href = 'index.html';
+        return; 
+    }
+
+    if (path.includes('index.html') || path.endsWith('/')) {
+        const loginBtn = document.getElementById('loginButton');
+        if(loginBtn) loginBtn.addEventListener('click', login);
+    } 
+    else if (path.includes('dashboard.html') || path.includes('network.html')) {
+        if (isLoggedIn) ensureFullScreen();
+        
+        await fetchMembersFromSupabase();
+
+        if (path.includes('dashboard.html')) initializeDashboard();
+        else if (path.includes('network.html')) initializeNetworkPage();
+    }
+});
+
+// --- AMBIL DATA (DIPERBAIKI: NAMA KOLOM & LIMIT) ---
+async function fetchMembersFromSupabase() {
+    try {
+        // PERBAIKAN: Tambah range(0, 9999) agar data >1000 tetap muncul
+        const { data, error } = await db.from('members').select('*').range(0, 9999);
+        
+        if (error) throw error;
+
+        allMembersCache = data.map(m => {
+            // PERBAIKAN: Menggunakan nama kolom Kapital sesuai Database (Nama, UID, Upline, TanggalBergabung)
+            const rawName = m.Nama || m.name || "Tanpa Nama";
+            const rawUid = m.UID || m.uid || "0";
+            const rawUpline = m.Upline || m.upline || null;
+            const rawDate = m.TanggalBergabung || m.joinDate || new Date().toISOString();
+
+            return {
+                name: rawName,
+                uid: String(rawUid), 
+                // Pastikan upline menjadi String agar filter jaringan bekerja
+                upline: rawUpline ? String(rawUpline) : null,
+                joinDate: rawDate
+            };
+        });
+        return allMembersCache;
+    } catch (error) {
+        console.error("Error fetch:", error); 
+        // Jangan return kosong jika error cuma masalah koneksi sesaat, tapi notify user
+        // showNotification("Gagal mengambil data server");
+        return [];
+    }
+}
+
+function loadMembers() { return allMembersCache; }
+
+// --- TAMBAH DATA (DIPERBAIKI: KOLOM KAPITAL) ---
+async function addMember() {
+    const name = document.getElementById('name').value.trim();
+    const uid = document.getElementById('uid').value.trim();
+    const upline = document.getElementById('upline').value.trim();
+    const joinDateValue = document.getElementById('joinDateInput').value;
+
+    if (!name || !uid) return showNotification("Nama & UID wajib diisi!");
+    if (allMembersCache.some(m => m.uid === uid)) return showNotification("UID sudah ada!");
+
+    const joinDate = joinDateValue ? new Date(joinDateValue).toISOString() : new Date().toISOString();
+    const btn = document.getElementById('addMemberButton');
+    btn.textContent = "Menyimpan...";
+    btn.disabled = true;
+
+    // PERBAIKAN: Langsung gunakan nama kolom yang benar (Huruf Besar Awal)
+    const payload = { 
+        Nama: name, 
+        UID: uid, 
+        Upline: upline || null, 
+        TanggalBergabung: joinDate 
+    };
+
+    const { error } = await db.from('members').insert([payload]);
+    
+    if (error) {
+        showNotification("Gagal: " + error.message);
+        btn.disabled = false;
+        btn.textContent = "Tambah Anggota";
+        return;
+    }
+
+    showNotification("Berhasil disimpan!");
+    ['name', 'uid', 'upline', 'joinDateInput'].forEach(id => document.getElementById(id).value = '');
+    
+    await fetchMembersFromSupabase(); // Refresh data lokal
+    updateCount(); 
+    searchMembers(); 
+    renderGrowthChart();
+    
+    btn.textContent = "Tambah Anggota";
+    btn.disabled = false;
+}
+
+// --- EDIT DATA (DIPERBAIKI: KOLOM KAPITAL) ---
+async function saveEditedMember() {
+    const originalUid = document.getElementById('originalUid').value;
+    const newName = document.getElementById('editName').value.trim();
+    const newUid = document.getElementById('editUid').value.trim();
+    const newUpline = document.getElementById('editUpline').value.trim();
+    const newJoinDate = document.getElementById('editJoinDate').value;
+    
+    // Siapkan data update dengan kolom yang benar
+    const updates = { 
+        Nama: newName, 
+        UID: newUid, 
+        Upline: newUpline || null, 
+        TanggalBergabung: newJoinDate ? new Date(newJoinDate).toISOString() : null 
+    };
+
+    // Update data berdasarkan UID (Kolom UID di DB)
+    const { error } = await db.from('members').update(updates).eq('UID', originalUid);
+
+    if (error) {
+        showNotification("Gagal update: " + error.message);
+    } else {
+        // Jika UID berubah, update juga semua member yang punya upline UID lama
+        if (originalUid !== newUid) {
+             await db.from('members').update({ Upline: newUid }).eq('Upline', originalUid);
+        }
+
+        closeEditModal();
+        showNotification("Data diperbarui.");
+        await fetchMembersFromSupabase();
+        searchMembers(); 
+        renderGrowthChart();
+    }
+}
+
+// --- HAPUS DATA (DIPERBAIKI: KOLOM KAPITAL) ---
+async function deleteMember(uid) {
+    // Set Upline jadi NULL dulu untuk downline-nya
+    await db.from('members').update({ Upline: null }).eq('Upline', uid);
+    
+    // Hapus member target
+    const { error } = await db.from('members').delete().eq('UID', uid);
+
+    if (error) { 
+        showNotification("Gagal hapus: " + error.message); 
+    } else { 
+        showNotification("Anggota dihapus."); 
+        await fetchMembersFromSupabase(); 
+        updateCount(); 
+        searchMembers(); 
+        renderGrowthChart(); 
+    }
+}
+
+// --- DIAGRAM JARINGAN (TETAP SAMA) ---
+function renderNetwork() {
+    const $ = go.GraphObject.make;
+    if (diagram) diagram.div = null;
+    
+    diagram = $(go.Diagram, "networkDiagram", {
+        layout: $(go.TreeLayout, { angle: 0, layerSpacing: 100, nodeSpacing: 20 }),
+        "undoManager.isEnabled": true,
+        "initialContentAlignment": go.Spot.Center
+    });
+
+    const allMembers = loadMembers();
+    if (allMembers.length === 0) return;
+
+    const focusedMemberUid = sessionStorage.getItem('focusedMemberUid');
+    let membersToRender = allMembers;
+    
+    if (focusedMemberUid) {
+        const rootMember = allMembers.find(m => m.uid === focusedMemberUid);
+        if (rootMember) {
+            const getDH = (list, parentUid) => {
+                let d = [];
+                const c = list.filter(m => m.upline === parentUid);
+                for (const child of c) { d.push(child); d = d.concat(getDH(list, child.uid)); }
+                return d;
+            };
+            membersToRender = [rootMember, ...getDH(allMembers, focusedMemberUid)];
+        }
+    }
+
+    const downlineCounts = {};
+    allMembers.forEach(m => downlineCounts[m.uid] = 0);
+    allMembers.forEach(m => { if (m.upline && downlineCounts.hasOwnProperty(m.upline)) downlineCounts[m.upline]++; });
+
+    diagram.nodeTemplate = $(go.Node, "Horizontal", 
+        $(go.Panel, "Auto", 
+            $(go.Shape, "RoundedRectangle", { strokeWidth: 2 }, 
+                new go.Binding("stroke", "key", k => downlineCounts[k]>=5?"gold":"white"), 
+                new go.Binding("fill", "key", k => downlineCounts[k]>=5?"#1a1a1a":"#111")
+            ),
+            $(go.TextBlock, { margin: 10, font: "bold 14px sans-serif", stroke:"white" }, 
+                new go.Binding("text", "label"))
+        ),
+        $("TreeExpanderButton", { width: 20, height: 20, "ButtonBorder.fill": "white" })
+    );
+
+    diagram.linkTemplate = $(go.Link, { routing: go.Link.Orthogonal, corner: 10 }, $(go.Shape, { strokeWidth: 2, stroke: "white" }));
+
+    const nodes = membersToRender.map(m => {
+        let dateFmt = 'N/A';
+        if(m.joinDate) { 
+            const d = new Date(m.joinDate); 
+            dateFmt = `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}`; 
+        }
+        return { key: m.uid, label: `${m.uid}/${m.name}/${dateFmt}` };
+    });
+
+    const links = membersToRender.filter(m => m.upline).map(m => ({ from: m.upline, to: m.uid }));
+    diagram.model = new go.GraphLinksModel(nodes, links);
+    
+    if (focusedMemberUid) {
+        const n = diagram.findNodeForKey(focusedMemberUid);
+        if(n) { diagram.centerRect(n.actualBounds); sessionStorage.removeItem('focusedMemberUid'); }
+    }
+}
+
+function downloadNetworkImage() {
+    if (!diagram) { showNotification("Diagram belum dimuat."); return; }
+    try {
+        const img = diagram.makeImage({
+            scale: 1, 
+            background: "#121212", 
+            maxSize: new go.Size(Infinity, Infinity),
+            padding: new go.Margin(50, 50, 50, 50) 
+        });
+        const link = document.createElement('a');
+        link.href = img.src; 
+        link.download = 'struktur_jaringan_dvteam.png'; 
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        showNotification("Mulai mengunduh gambar...");
+    } catch (e) {
+        console.error("Gagal download:", e);
+        showNotification("Gagal mengunduh gambar.");
+    }
+}
+
+// --- FUNGSI UI & UTILS ---
+function login() {
+    const user = document.getElementById('username').value;
+    const pass = document.getElementById('password').value;
+    if (user === 'admin' && pass === 'dvteam123') {
+        sessionStorage.setItem('isLoggedIn', 'true');
+        window.location.href = 'dashboard.html';
+    } else { document.getElementById('error').innerText = 'Login gagal!'; }
+}
+function logout() { sessionStorage.removeItem('isLoggedIn'); window.location.href = 'index.html'; }
+
+function initializeDashboard() {
+    updateCount(); renderGrowthChart();
+    document.getElementById('addMemberButton').addEventListener('click', addMember);
+    document.getElementById('searchButton').addEventListener('click', searchMembers);
+    document.getElementById('resetButton').addEventListener('click', resetSearch);
+    document.getElementById('viewNetworkButton').addEventListener('click', () => { window.location.href = 'network.html'; });
+    document.getElementById('viewMemberListButton').addEventListener('click', () => showMemberList(null));
+    document.getElementById('backToDashboardButton').addEventListener('click', showMainDashboard);
+    setupTableSorting(); 
+    document.getElementById('downloadButton').addEventListener('click', downloadCSV);
+    document.getElementById('saveEditButton').addEventListener('click', saveEditedMember);
+    document.getElementById('cancelEditButton').addEventListener('click', closeEditModal);
+    document.getElementById('logoutButton').addEventListener('click', logout);
+}
+function initializeNetworkPage() {
+    renderNetwork();
+    document.getElementById('backButton').addEventListener('click', () => { window.location.href = 'dashboard.html'; });
+    document.getElementById('downloadNetworkButton').addEventListener('click', downloadNetworkImage);
+}
+function updateCount() { const el = document.getElementById('totalMembers'); if (el) el.textContent = loadMembers().length; }
+function searchMembers() {
+    const searchTerm = document.getElementById('searchTerm').value.toLowerCase();
+    const allMembers = loadMembers(); 
+    const results = allMembers.filter(member => {
+        return searchTerm === '' || member.name.toLowerCase().includes(searchTerm) || member.uid.toLowerCase().includes(searchTerm);
+    });
+    displaySearchResults(results.reverse(), allMembers);
+}
+function displaySearchResults(results, allMembers) {
+    const container = document.getElementById('searchResultsContainer');
+    if (results.length === 0) { container.innerHTML = '<p style="text-align:center; color: #888;">Tidak ada anggota ditemukan.</p>'; return; }
+    let html = `<h4 style="margin-top: 20px;">Hasil (${results.length})</h4>`;
+    results.forEach(member => {
+        const joinDate = member.joinDate ? new Date(member.joinDate).toLocaleDateString('id-ID') : 'N/A';
+        const uplineMember = allMembers.find(m => m.uid === member.upline);
+        const uplineName = uplineMember ? uplineMember.name : '-';
+        const downlineCount = getDownlineCount(allMembers, member.uid);
+        html += `<div class="result-card"><div class="result-info"><span class="info-label">Nama:</span><span class="info-value">${member.name}</span></div><div class="result-info"><span class="info-label">UID:</span><span class="info-value">${member.uid}</span></div><div class="result-info"><span class="info-label">Upline:</span><span class="info-value">${uplineName} (${member.upline || '-'})</span></div><div class="result-info"><span class="info-label">Total Anggota:</span><span class="info-value">${downlineCount}</span></div><div class="result-actions"><button class="btn-edit" onclick="openEditModal('${member.uid}')">Edit</button><button class="btn-delete" onclick="openConfirmModal('${member.uid}')">Hapus</button><button onclick="sessionStorage.setItem('focusedMemberUid', '${member.uid}'); window.location.href='network.html';">Lihat Jaringan</button><button onclick="showMemberList('${member.uid}')">Lihat Daftar</button></div></div>`;
+    });
+    container.innerHTML = html;
+}
+function resetSearch() { document.getElementById('searchTerm').value = ''; document.getElementById('searchResultsContainer').innerHTML = ''; }
+function getDownlineCount(list, parentUid) {
+    const children = list.filter(m => m.upline === parentUid);
+    let count = children.length; for (const child of children) count += getDownlineCount(list, child.uid); return count;
+}
+function showNotification(message) {
+    let notification = document.getElementById('notification'); if (!notification) return;
+    notification.textContent = message; notification.classList.add('show');
+    setTimeout(() => notification.classList.remove('show'), 3000);
+}
+function openEditModal(uid) {
+    const member = loadMembers().find(m => m.uid === uid); if (!member) return;
+    document.getElementById('originalUid').value = member.uid;
+    document.getElementById('editName').value = member.name;
+    document.getElementById('editUid').value = member.uid;
+    document.getElementById('editUpline').value = member.upline || '';
+    document.getElementById('editJoinDate').value = member.joinDate ? member.joinDate.split('T')[0] : '';
+    document.getElementById('editModal').style.display = 'flex';
+}
+function closeEditModal() { document.getElementById('editModal').style.display = 'none'; }
+function openConfirmModal(uid) {
+    const modal = document.getElementById('confirmModal');
+    const confirmBtn = document.getElementById('confirmDeleteButton');
+    const cancelBtn = document.getElementById('cancelDeleteButton');
+    modal.style.display = 'flex';
+    const newConfirmBtn = confirmBtn.cloneNode(true);
+    confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+    newConfirmBtn.addEventListener('click', () => { deleteMember(uid); modal.style.display = 'none'; });
+    cancelBtn.addEventListener('click', () => { modal.style.display = 'none'; });
+}
+function downloadCSV() {
+    const members = loadMembers(); if (members.length === 0) return showNotification("Belum ada data!");
+    let csv = "Nama,UID,Upline,TanggalBergabung\n";
+    members.forEach(m => { const name = `"${m.name.replace(/"/g, '""')}"`; const joinDate = m.joinDate ? m.joinDate.split('T')[0] : ''; csv += `${name},${m.uid},${m.upline || ''},${joinDate}\n`; });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'data_anggota_dvteam.csv';
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+}
+function showMainDashboard() { document.getElementById('mainDashboardContent').style.display = 'block'; document.getElementById('memberListContainer').style.display = 'none'; }
+function showMemberList(uid = null) { memberListFilterUid = uid; document.getElementById('mainDashboardContent').style.display = 'none'; document.getElementById('memberListContainer').style.display = 'block'; renderMemberList(); }
+function getDownlineHierarchyFlat(list, parentUid) { let result = []; const children = list.filter(m => m.upline === parentUid); for (const child of children) { result.push(child); result = result.concat(getDownlineHierarchyFlat(list, child.uid)); } return result; }
+function renderMemberList() {
+    const allMembers = loadMembers(); const tbody = document.getElementById('memberListTableBody'); tbody.innerHTML = ''; 
+    let membersToRender = memberListFilterUid ? [allMembers.find(m => m.uid === memberListFilterUid), ...getDownlineHierarchyFlat(allMembers, memberListFilterUid)].filter(Boolean) : [...allMembers];
+    membersToRender.sort((a, b) => { let valA = a[memberListSortColumn]||'', valB = b[memberListSortColumn]||''; if (memberListSortColumn === 'joinDate') { valA = new Date(a.joinDate); valB = new Date(b.joinDate); } else { valA = valA.toLowerCase(); valB = valB.toLowerCase(); } if (valA < valB) return memberListSortDirection === 'asc' ? -1 : 1; if (valA > valB) return memberListSortDirection === 'asc' ? 1 : -1; return 0; });
+    membersToRender.forEach((member, index) => { const joinDate = member.joinDate ? new Date(member.joinDate).toLocaleDateString('id-ID') : 'N/A'; tbody.innerHTML += `<tr><td>${index + 1}</td><td>${member.name}</td><td>${member.uid}</td><td>${member.upline || '-'}</td><td>${joinDate}</td></tr>`; });
+}
+function setupTableSorting() { document.querySelectorAll('#memberListTable th.sortable-header').forEach(header => { header.addEventListener('click', () => { const newSortColumn = header.getAttribute('data-sort'); if (newSortColumn === memberListSortColumn) memberListSortDirection = memberListSortDirection === 'asc' ? 'desc' : 'asc'; else { memberListSortColumn = newSortColumn; memberListSortDirection = 'asc'; } renderMemberList(); }); }); }
+function renderGrowthChart() {
+    const members = loadMembers(); const ctx = document.getElementById('growthChart').getContext('2d'); if (growthChart) growthChart.destroy(); if (members.length === 0) return;
+    members.sort((a, b) => new Date(a.joinDate) - new Date(b.joinDate));
+    const periods = {}; const firstDate = new Date(members[0].joinDate); const lastDate = new Date(); let currentDate = new Date(firstDate.getFullYear(), firstDate.getMonth(), 1);
+    while (currentDate <= lastDate) { const year = currentDate.getFullYear(); const month = currentDate.getMonth() + 1; periods[`${year}-${month}-P1`] = 0; periods[`${year}-${month}-P2`] = 0; currentDate.setMonth(currentDate.getMonth() + 1); }
+    members.forEach(member => { const joinDate = new Date(member.joinDate); if(!isNaN(joinDate)) { const key = `${joinDate.getFullYear()}-${joinDate.getMonth() + 1}-${joinDate.getDate() <= 15 ? 'P1' : 'P2'}`; if (periods.hasOwnProperty(key)) periods[key]++; } });
+    const labels = []; const periodData = []; Object.keys(periods).forEach(key => { const [year, month, period] = key.split('-'); const monthName = new Date(year, month - 1).toLocaleString('id-ID', { month: 'short' }); labels.push(`${monthName} ${year} (${period})`); periodData.push(periods[key]); });
+    growthChart = new Chart(ctx, { type: 'bar', data: { labels: labels.slice(-12), datasets: [{ label: 'Anggota Baru', data: periodData.slice(-12), backgroundColor: 'rgba(255, 215, 0, 0.7)', borderColor: 'gold', borderWidth: 1 }] }, options: { responsive: true, scales: { y: { beginAtZero: true, ticks: { color: '#ccc'} }, x: { ticks: { color: '#ccc'} } }, plugins: { legend: { display: false } } } });
+}
+function ensureFullScreen() { const element = document.documentElement; if (!document.fullscreenElement && element.requestFullscreen) element.requestFullscreen().catch(err => {}); }
