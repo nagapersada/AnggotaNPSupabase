@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dvteam-app-v1';
+const CACHE_NAME = 'dvteam-app-v10';
 const urlsToCache = [
   './',
   'index.html',
